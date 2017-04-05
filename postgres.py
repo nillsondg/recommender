@@ -31,8 +31,8 @@ class DB:
         cur.execute("BEGIN;")
         for row in df.itertuples():
             query = "INSERT INTO recommendations_events_collaborative(user_id, event_id, rating) VALUES(" + \
-                    row[1] + "," + row[2] + "," + row[3] + ") ON CONFLICT(user_id, event_id) DO UPDATE SET rating = " +\
-                    row[3] + ";"
+                    str(row[1]) + "," + str(row[2]) + "," + str(row[3]) + ")" + \
+                     "ON CONFLICT(user_id, event_id) DO UPDATE SET rating = " + str(row[3]) + ";"
             cur.execute(query)
         cur.execute("COMMIT;")
         cur.close()

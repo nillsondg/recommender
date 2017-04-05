@@ -3,11 +3,14 @@ import numpy as np
 import pandas as pd
 import postgres
 import sklearn
+from collections import OrderedDict
+import time
 
 app = Flask(__name__)
 
 
 def collaborative_recommend():
+    start = time.time()
     db = postgres.DB()
     df = db.get_ratings()
     # convert id to categorical
@@ -15,6 +18,9 @@ def collaborative_recommend():
     df['eventId_coded'] = pd.Categorical(df.event_id).codes
     n_events = df.eventId_coded.unique().shape[0]
     n_users = df.userId_coded.unique().shape[0]
+
+    events_labels = dict(zip(df.eventId_coded, df.event_id))
+    users_labels = dict(zip(df.userId_coded, df.user_id))
 
     # Create two user-item matrices, one for training and another for testing
     train_data_matrix = np.zeros((n_users, n_events))
@@ -37,19 +43,33 @@ def collaborative_recommend():
 
     print(user_pred_k.shape)
     print("ratings predicted")
-    df_res = pd.DataFrame([], columns=['userId', "eventId", "rating"])
-    for user_index in range(user_pred_k.shape[0]):
-        user_id = df.loc[df['userId_coded'] == user_index].iloc[0].user_idN
-        it = np.nditer(user_pred_k[0], flags=['f_index'])
-        while not it.finished:
-            event_id = df.loc[df['eventId_coded'] == it.index].iloc[0].event_id
-            df_res.loc[df_res.shape[0]] = [int(user_id), int(event_id), it[0]]
-            it.iternext()
-        if user_index % 5 == 0:
-            print(user_index)
 
+    n = user_pred_k.shape[0] * user_pred_k.shape[1]
+    users = np.empty(n, dtype=int)
+    events = np.empty(n, dtype=int)
+    ratings = np.empty(n, dtype=float)
+    hor_n = user_pred_k.shape[1]
+    for user_index in range(user_pred_k.shape[0]):
+        for event_index in range(user_pred_k.shape[1]):
+            current_index = user_index * hor_n + event_index
+            rating = user_pred_k[user_index, event_index]
+            users[current_index] = users_labels[user_index]
+            events[current_index] = events_labels[event_index]
+            ratings[current_index] = rating
+
+        if user_index % 50 == 0:
+            print(user_index)
+    data = OrderedDict()
+    data["userId"] = users
+    data["eventId"] = events
+    data["rating"] = ratings
+    df_res = pd.DataFrame(data)
+
+    print(df_res.shape)
     print("df transformed")
     db.save_ratings(df_res)
+    end = time.time()
+    print(end - start)
 
 
 @app.route("/")
