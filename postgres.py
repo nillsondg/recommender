@@ -30,9 +30,21 @@ class DB:
         cur = self._get_connection().cursor()
         cur.execute("BEGIN;")
         for row in df.itertuples():
-            query = "INSERT INTO recommendations_events_collaborative(user_id, event_id, rating) VALUES(" + \
-                    str(row[1]) + "," + str(row[2]) + "," + str(row[3]) + ")" + \
-                     "ON CONFLICT(user_id, event_id) DO UPDATE SET rating = " + str(row[3]) + ";"
+            query = "INSERT INTO recommendations_events_collaborative(user_id, event_id, rating, updated_at) VALUES(" +\
+                    str(row[1]) + "," + str(row[2]) + "," + str(row[3]) + ", now())" + \
+                     "ON CONFLICT(user_id, event_id) DO UPDATE SET rating = " + str(row[3]) + ", updated_at = now();"
+            cur.execute(query)
+        cur.execute("COMMIT;")
+        cur.close()
+        print("df saved")
+
+    def save_model_based_ratings(self, df):
+        cur = self._get_connection().cursor()
+        cur.execute("BEGIN;")
+        for row in df.itertuples():
+            query = "INSERT INTO recommendations_events_collaborative_model_based(user_id, event_id, rating, updated_at) VALUES(" + \
+                    str(row[1]) + "," + str(row[2]) + "," + str(row[3]) + ", now())" + \
+                     "ON CONFLICT(user_id, event_id) DO UPDATE SET rating = " + str(row[3]) + ", updated_at = now();"
             cur.execute(query)
         cur.execute("COMMIT;")
         cur.close()
