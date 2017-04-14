@@ -12,6 +12,7 @@ app = Flask(__name__)
 
 
 def collaborative_recommend(df):
+    print("start calc")
     start = time.time()
     # convert id to categorical
     df['userId_coded'] = pd.Categorical(df.user_id).codes
@@ -73,6 +74,8 @@ def collaborative_recommend(df):
 
 
 def model_based(df):
+    print("start calc")
+    start = time.time()
     df['userId_coded'] = pd.Categorical(df.user_id).codes
     df['eventId_coded'] = pd.Categorical(df.event_id).codes
     n_events = df.eventId_coded.unique().shape[0]
@@ -111,6 +114,66 @@ def model_based(df):
     data["eventId"] = events
     data["rating"] = ratings
     df_res = pd.DataFrame(data)
+
+    print(df_res.shape)
+    print("calculated")
+    end = time.time()
+    print("calc time", end - start)
+    return df_res
+
+
+def content_based(df_ratings, df_events):
+    print("start calc")
+    start = time.time()
+
+    # remove items, that not in ratings (temporary)
+    df_events = df_events[df_events.id.isin(df_ratings.event_id)]
+    # cause nullable description
+    df_ratings = df_ratings[df_ratings.event_id.isin(df_events.id)]
+
+    # TODO fix empty string in CountVectorizer
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from stop_words import get_stop_words
+    stop_words = get_stop_words('ru')
+    vectorizer = TfidfVectorizer(max_features=2500, ngram_range=(0, 3), sublinear_tf=True, stop_words=stop_words)
+    x = vectorizer.fit_transform(df_events['description'])
+    itemprof = x.todense()
+
+    ratmat = df_ratings.pivot(index='user_id', columns='event_id', values='ratings').fillna(0)
+
+    from scipy import linalg, dot
+    userprof = dot(ratmat, itemprof) / linalg.norm(ratmat) / linalg.norm(itemprof)
+    import sklearn.metrics
+    similarity_calc = sklearn.metrics.pairwise.cosine_similarity(userprof, itemprof, dense_output=True)
+    events_labels = dict(zip(range(len(ratmat.columns.values)), ratmat.columns.values))
+    users_labels = dict(zip(range(len(ratmat.index.values)), ratmat.index.values))
+
+    from collections import OrderedDict
+    n = similarity_calc.shape[0] * similarity_calc.shape[1]
+    users = np.empty(n, dtype=int)
+    events = np.empty(n, dtype=int)
+    ratings = np.empty(n, dtype=float)
+    hor_n = similarity_calc.shape[1]
+    for user_index in range(similarity_calc.shape[0]):
+        for event_index in range(similarity_calc.shape[1]):
+            current_index = (user_index - 1) * hor_n + event_index
+            rating = similarity_calc[user_index, event_index]
+            users[current_index] = users_labels[user_index]
+            events[current_index] = events_labels[event_index]
+            ratings[current_index] = rating
+
+        if user_index % 50 == 0:
+            print(user_index)
+    data = OrderedDict()
+    data["userId"] = users
+    data["eventId"] = events
+    data["rating"] = ratings
+    df_res = pd.DataFrame(data)
+
+    print(df_res.shape)
+    print("calculated")
+    end = time.time()
+    print("calc time", end - start)
     return df_res
 
 
@@ -118,9 +181,11 @@ def model_based(df):
 def hello():
     db = postgres.DB()
     df = db.get_ratings()
+    df_desc = db.get_events_desc()
 
-    # db.save_ratings(collaborative_recommend(df))
+    db.save_ratings(collaborative_recommend(df))
     db.save_model_based_ratings(model_based(df))
+    db.save_content_based_ratings(content_based(df, df_desc))
 
     return "done"
 
