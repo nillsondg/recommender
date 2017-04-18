@@ -7,6 +7,11 @@ from collections import OrderedDict
 import time
 import scipy.sparse as sp
 from scipy.sparse.linalg import svds
+from sklearn.metrics import mean_squared_error
+from math import sqrt
+from sklearn.feature_extraction.text import CountVectorizer
+import nltk
+
 
 app = Flask(__name__)
 
@@ -70,6 +75,7 @@ def collaborative_recommend(df):
     print("df transformed")
     end = time.time()
     print(end - start)
+    print("rmse user based", get_rmse(user_pred_k, train_data_matrix))
     return df_res
 
 
@@ -119,7 +125,17 @@ def model_based(df):
     print("calculated")
     end = time.time()
     print("calc time", end - start)
+    print("rmse model", get_rmse(x_pred, train_data_matrix))
     return df_res
+
+
+class StemmedCountVectorizer(CountVectorizer):
+    def __init__(self, **kv):
+        super(StemmedCountVectorizer, self).__init__(**kv)
+        self._stemmer = nltk.stem.snowball.RussianStemmer()
+    def build_analyzer(self):
+        analyzer = super(StemmedCountVectorizer, self).build_analyzer()
+        return lambda doc: (self._stemmer.stem(w) for w in analyzer(doc))
 
 
 def content_based(df_ratings, df_events):
@@ -132,10 +148,15 @@ def content_based(df_ratings, df_events):
     df_ratings = df_ratings[df_ratings.event_id.isin(df_events.id)]
 
     # TODO fix empty string in CountVectorizer
-    from sklearn.feature_extraction.text import TfidfVectorizer
     from stop_words import get_stop_words
     stop_words = get_stop_words('ru')
-    vectorizer = TfidfVectorizer(max_features=2500, ngram_range=(0, 3), sublinear_tf=True, stop_words=stop_words)
+    vectorizer = StemmedCountVectorizer(
+        min_df=1,
+        token_pattern=r'[ЁАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюяё]{4,}',
+        max_features=2500,
+        stop_words=stop_words
+    )
+    # vectorizer = TfidfVectorizer(max_features=2500, ngram_range=(0, 3), sublinear_tf=True, stop_words=stop_words)
     x = vectorizer.fit_transform(df_events['description'])
     itemprof = x.todense()
 
@@ -174,7 +195,15 @@ def content_based(df_ratings, df_events):
     print("calculated")
     end = time.time()
     print("calc time", end - start)
+    print("rmse content", get_rmse(similarity_calc, ratmat.as_matrix()))
     return df_res
+
+
+def get_rmse(pred, actual):
+    # Ignore nonzero terms.
+    pred = pred[actual.nonzero()].flatten()
+    actual = actual[actual.nonzero()].flatten()
+    return sqrt(mean_squared_error(pred, actual))
 
 
 @app.route("/")
